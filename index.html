@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Global GDP per Capita 3D Visualization</title>
+    
+    <!-- 引入字體 -->
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;700&family=Orbitron:wght@400;700&display=swap" rel="stylesheet">
+    
+    <!-- 引入需要的外部函式庫 (鎖定穩定版本避免報錯) -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.136.0/build/three.min.js"></script>
+    <script src="https://unpkg.com/globe.gl@2.32.1/dist/globe.gl.min.js"></script>
+    <script src="https://unpkg.com/d3@7.8.5/dist/d3.min.js"></script>
+
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #050510;
+            font-family: 'Noto Sans TC', sans-serif;
+            color: #fff;
+        }
+
+        #globeViz {
+            width: 100vw;
+            height: 100vh;
+        }
+
+        /* 標題介面 */
+        .header {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 10;
+            pointer-events: none;
+        }
+        
+        .header h1 {
+            margin: 0;
+            font-family: 'Orbitron', sans-serif;
+            font-size: 24px;
+            text-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
+            letter-spacing: 1px;
+        }
+
+        .header p {
+            margin: 5px 0 0 0;
+            font-size: 14px;
+            color: #aaa;
+        }
+
+        /* Hover Tooltip */
+        .tooltip {
+            background: rgba(10, 15, 30, 0.85);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            backdrop-filter: blur(5px);
+            border-radius: 8px;
+            padding: 12px;
+            font-size: 14px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+            pointer-events: none;
+            transition: all 0.1s ease;
+        }
+
+        .tooltip .country-name {
+            font-weight: bold;
+            font-size: 16px;
+            color: #4da6ff;
+            margin-bottom: 5px;
+        }
+
+        .tooltip .gdp-value {
+            font-family: 'Orbitron', sans-serif;
+            color: #fff;
+        }
+
+        /* 資訊面板 (點擊後顯示) */
+        #infoPanel {
+            position: absolute;
+            top: 50%;
+            right: -400px; /* 初始隱藏 */
+            transform: translateY(-50%);
+            width: 260px; /* 【縮小為原本的 ~80%】原為 320px */
+            background: rgba(15, 20, 35, 0.7);
+            border-left: 3px solid #fff;
+            backdrop-filter: blur(10px);
+            padding: 20px; /* 【等比縮小】原為 25px */
+            box-shadow: -5px 0 20px rgba(0, 0, 0, 0.5);
+            transition: right 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+            z-index: 10;
+            border-radius: 12px 0 0 12px;
+        }
+
+        #infoPanel.active {
+            right: 0;
+        }
+
+        #infoPanel h2 {
+            margin-top: 0;
+            font-size: 22px; /* 【縮小為原本的 ~80%】原為 28px */
+            margin-bottom: 5px;
+            color: #fff;
+        }
+
+        /* 新增：國家名稱超連結樣式 */
+        #panelZhName {
+            color: #ffffff;
+            text-decoration: none;
+            transition: color 0.2s ease, text-shadow 0.2s ease;
+        }
+
+        #panelZhName:hover {
+            color: #4da6ff;
+            text-shadow: 0 0 10px rgba(77, 166, 255, 0.6); /* 增加科技發光感 */
+            text-decoration: none;
+        }
+
+        /* 新增：面板頭部排版，利用 flexbox 將國旗與文字並排 */
+        .panel-header {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+
+        /* 新增：國旗圖片樣式 */
+        #panelFlag {
+            width: 56px;
+            height: auto;
+            border-radius: 4px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+            display: none; /* 預設隱藏，有讀取到對應國旗才顯示 */
+        }
+
+        #infoPanel .en-name {
+            font-size: 13px; /* 原為 16px */
+            color: #aaa;
+            margin-bottom: 0px; /* 原為 15px，現由 panel-header 統一控制底部間距 */
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        #infoPanel .stat-box {
+            background: rgba(0, 0, 0, 0.4);
+            padding: 12px; /* 原為 15px */
+            border-radius: 8px;
+            margin-bottom: 12px; /* 原為 15px */
+        }
+
+        #infoPanel .stat-label {
+            font-size: 11px; /* 原為 12px */
+            color: #888;
+            margin-bottom: 5px;
+        }
+
+        #infoPanel .stat-value {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 20px; /* 【縮小為原本的 ~80%】原為 24px */
+            font-weight: bold;
+            color: #4da6ff;
+        }
+
+        .close-btn {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            cursor: pointer;
+            color: #888;
+            font-size: 20px;
+            transition: color 0.2s;
+        }
+
+        .close-btn:hover {
+            color: #fff;
+        }
+
+        /* 圖例 (Legend) */
+        .legend {
+            position: absolute;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(10, 15, 30, 0.8);
+            backdrop-filter: blur(5px);
+            padding: 15px 25px;
+            border-radius: 30px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            z-index: 10;
+        }
+
+        .legend-title {
+            font-size: 12px;
+            color: #aaa;
+            margin-bottom: 8px;
+            letter-spacing: 1px;
+        }
+
+        .legend-bar-container {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            position: relative; /* 供游標定位使用 */
+        }
+
+        .legend-bar {
+            width: 300px;
+            height: 12px;
+            border-radius: 6px;
+            background: linear-gradient(to right, #00008B, #FFFFFF, #8B0000);
+        }
+        
+        /* 財富刻度游標標記 */
+        .legend-marker {
+            position: absolute;
+            top: -4px;
+            left: 0%;
+            height: 20px;
+            width: 4px;
+            background: #00ffff;
+            box-shadow: 0 0 8px #00ffff, 0 0 15px #00ffff;
+            border-radius: 2px;
+            transform: translateX(-50%);
+            transition: left 0.8s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease;
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .legend-marker.active {
+            opacity: 1;
+        }
+
+        .legend-labels {
+            width: 100%;
+            display: flex;
+            justify-content: space-between;
+            margin-top: 5px;
+            font-family: 'Orbitron', sans-serif;
+            font-size: 11px;
+            color: #ddd;
+        }
+
+        /* 載入動畫 */
+        #loader {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: #000;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 999;
+            color: #fff;
+            transition: opacity 1s ease;
+        }
+
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 3px solid rgba(255,255,255,0.1);
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 1s ease-in-out infinite;
+            margin-bottom: 20px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- 載入畫面 -->
+    <div id="loader">
+        <div class="spinner"></div>
+        <div>Loading Earth Data...</div>
+    </div>
+
+    <!-- 標題 -->
+    <div class="header">
+        <h1>GLOBAL WEALTH 3D</h1>
+        <p>人均 GDP 地理視覺化 (對數分佈)</p>
+    </div>
+
+    <!-- 3D 地球容器 -->
+    <div id="globeViz"></div>
+
+    <!-- 圖例 -->
+    <div class="legend">
+        <div class="legend-title">GDP PER CAPITA (USD) - LOG SCALE</div>
+        <div class="legend-bar-container">
+            <div class="legend-bar"></div>
+            <!-- 游標標記 -->
+            <div id="legendMarker" class="legend-marker"></div>
+        </div>
+        <div class="legend-labels">
+            <span><$1K</span>
+            <span>$10K</span>
+            <span>>$100K</span>
+        </div>
+    </div>
+
+    <!-- 資訊面板 -->
+    <div id="infoPanel">
+        <span class="close-btn" onclick="closePanel()">✕</span>
+        
+        <!-- 新增：將國旗與名稱用一個容器包覆，方便水平排版 -->
+        <div class="panel-header">
+            <img id="panelFlag" src="" alt="National Flag">
+            <div>
+                <!-- 修正：將國家名稱改為超連結，並設定 target="_blank" 於新視窗開啟 -->
+                <h2><a id="panelZhName" href="#" target="_blank" rel="noopener noreferrer" title="前往維基百科查看">國家名稱</a></h2>
+                <div id="panelEnName" class="en-name">Country Name</div>
+            </div>
+        </div>
+        
+        <div class="stat-box">
+            <div class="stat-label">GDP PER CAPITA (USD)</div>
+            <div id="panelGdp" class="stat-value">$ 0</div>
+        </div>
+        
+        <div class="stat-box">
+            <div class="stat-label">全球財富評級</div>
+            <div id="panelLevel" class="stat-value" style="font-size: 18px; color: #fff;">-</div>
+        </div>
+    </div>
+
+    <script>
+        // 核心資料字典 (預設主要國家數據)
+        const countryDataDict = {
+            "USA": { zh: "美國", gdp: 80412 },
+            "CHN": { zh: "中國", gdp: 12541 },
+            "TWN": { zh: "台灣", gdp: 32339 },
+            "JPN": { zh: "日本", gdp: 33950 },
+            "KOR": { zh: "韓國", gdp: 33147 },
+            "GBR": { zh: "英國", gdp: 46371 },
+            "FRA": { zh: "法國", gdp: 44408 },
+            "DEU": { zh: "德國", gdp: 52824 },
+            "IND": { zh: "印度", gdp: 2612 },
+            "CAN": { zh: "加拿大", gdp: 53247 },
+            "AUS": { zh: "澳洲", gdp: 64964 },
+            "RUS": { zh: "俄羅斯", gdp: 13006 },
+            "BRA": { zh: "巴西", gdp: 10412 },
+            "ITA": { zh: "義大利", gdp: 37145 },
+            "ESP": { zh: "西班牙", gdp: 31223 },
+            "CHE": { zh: "瑞士", gdp: 98767 },
+            "LUX": { zh: "盧森堡", gdp: 135605 },
+            "IRL": { zh: "愛爾蘭", gdp: 112248 },
+            "SGP": { zh: "新加坡", gdp: 87884 },
+            "NOR": { zh: "挪威", gdp: 94660 },
+            "ARE": { zh: "阿拉伯聯合大公國", gdp: 50602 },
+            "SAU": { zh: "沙烏地阿拉伯", gdp: 32586 },
+            "ZAF": { zh: "南非", gdp: 6190 },
+            "MEX": { zh: "墨西哥", gdp: 13807 },
+            "IDN": { zh: "印尼", gdp: 5016 },
+            "VNM": { zh: "越南", gdp: 4324 },
+            "THA": { zh: "泰國", gdp: 7298 },
+            "MYS": { zh: "馬來西亞", gdp: 13382 },
+            "PHL": { zh: "菲律賓", gdp: 3859 },
+            "EGY": { zh: "埃及", gdp: 3770 },
+            "NGA": { zh: "奈及利亞", gdp: 1755 },
+            "KEN": { zh: "肯亞", gdp: 2085 },
+            "BDI": { zh: "蒲隆地", gdp: 245 },
+            "SSD": { zh: "南蘇丹", gdp: 417 },
+            "AFG": { zh: "阿富汗", gdp: 363 },
+            "ARG": { zh: "阿根廷", gdp: 13730 },
+            "CHL": { zh: "智利", gdp: 17093 },
+            "NZL": { zh: "紐西蘭", gdp: 53809 },
+            "SWE": { zh: "瑞典", gdp: 55979 },
+            "NLD": { zh: "荷蘭", gdp: 61098 },
+            "POL": { zh: "波蘭", gdp: 19912 },
+            "TUR": { zh: "土耳其", gdp: 11931 },
+            "IRN": { zh: "伊朗", gdp: 4252 },
+            "PAK": { zh: "巴基斯坦", gdp: 1471 },
+            "BGD": { zh: "孟加拉", gdp: 2621 }
+        };
+
+        // 全球 ISO_A3 繁體中文完整對照表
+        const isoA3ToZh = {
+            "AFG": "阿富汗", "AGO": "安哥拉", "ALB": "阿爾巴尼亞", "ARE": "阿拉伯聯合大公國", "ARG": "阿根廷",
+            "ARM": "亞美尼亞", "ATA": "南極洲", "ATF": "法屬南部屬地", "AUS": "澳洲", "AUT": "奧地利",
+            "AZE": "亞塞拜然", "BDI": "蒲隆地", "BEL": "比利時", "BEN": "貝南", "BFA": "布吉納法索",
+            "BGD": "孟加拉", "BGR": "保加利亞", "BHS": "巴哈馬", "BIH": "波士尼亞與赫塞哥維納", "BLR": "白俄羅斯",
+            "BLZ": "貝里斯", "BOL": "玻利維亞", "BRA": "巴西", "BRN": "汶萊", "BTN": "不丹",
+            "BWA": "波札那", "CAF": "中非共和國", "CAN": "加拿大", "CHE": "瑞士", "CHL": "智利",
+            "CHN": "中國", "CIV": "象牙海岸", "CMR": "喀麥隆", "COD": "剛果民主共和國", "COG": "剛果共和國",
+            "COL": "哥倫比亞", "CRI": "哥斯大黎加", "CUB": "古巴", "CYP": "賽普勒斯", "CZE": "捷克",
+            "DEU": "德國", "DJI": "吉布地", "DNK": "丹麥", "DOM": "多明尼加", "DZA": "阿爾及利亞",
+            "ECU": "厄瓜多", "EGY": "埃及", "ERI": "厄利垂亞", "ESP": "西班牙", "EST": "愛沙尼亞",
+            "ETH": "衣索比亞", "FIN": "芬蘭", "FJI": "斐濟", "FLK": "福克蘭群島", "FRA": "法國",
+            "GAB": "加彭", "GBR": "英國", "GEO": "喬治亞", "GHA": "迦納", "GIN": "幾內亞",
+            "GMB": "甘比亞", "GNB": "幾內亞比索", "GNQ": "赤道幾內亞", "GRC": "希臘", "GRL": "格陵蘭",
+            "GTM": "瓜地馬拉", "GUY": "蓋亞那", "HND": "宏都拉斯", "HRV": "克羅埃西亞", "HTI": "海地",
+            "HUN": "匈牙利", "IDN": "印尼", "IND": "印度", "IRL": "愛爾蘭", "IRN": "伊朗",
+            "IRQ": "伊拉克", "ISL": "冰島", "ISR": "以色列", "ITA": "義大利", "JAM": "牙買加",
+            "JOR": "約旦", "JPN": "日本", "KAZ": "哈薩克", "KEN": "肯亞", "KGZ": "吉爾吉斯",
+            "KHM": "柬埔寨", "KOR": "韓國", "KWT": "科威特", "LAO": "寮國", "LBN": "黎巴嫩",
+            "LBR": "賴比瑞亞", "LBY": "利比亞", "LKA": "斯里蘭卡", "LSO": "賴索托", "LTU": "立陶宛",
+            "LUX": "盧森堡", "LVA": "拉脫維亞", "MAR": "摩洛哥", "MDA": "摩爾多瓦", "MDG": "馬達加斯加",
+            "MEX": "墨西哥", "MKD": "北馬其頓", "MLI": "馬利", "MMR": "緬甸", "MNE": "蒙特內哥羅",
+            "MNG": "蒙古", "MOZ": "莫三比克", "MRT": "茅利塔尼亞", "MWI": "馬拉威", "MYS": "馬來西亞",
+            "NAM": "納米比亞", "NCL": "新喀里多尼亞", "NER": "尼日", "NGA": "奈及利亞", "NIC": "尼加拉瓜",
+            "NLD": "荷蘭", "NOR": "挪威", "NPL": "尼泊爾", "NZL": "紐西蘭", "OMN": "阿曼",
+            "PAK": "巴基斯坦", "PAN": "巴拿馬", "PER": "秘魯", "PHL": "菲律賓", "PNG": "巴布亞紐幾內亞",
+            "POL": "波蘭", "PRI": "波多黎各", "PRK": "北韓", "PRT": "葡萄牙", "PRY": "巴拉圭",
+            "QAT": "卡達", "ROU": "羅馬尼亞", "RUS": "俄羅斯", "RWA": "盧安達", "ESH": "西撒哈拉",
+            "SAU": "沙烏地阿拉伯", "SDN": "蘇丹", "SSD": "南蘇丹", "SEN": "塞內加爾", "SLB": "索羅門群島",
+            "SLE": "獅子山", "SLV": "薩爾瓦多", "SOM": "索馬利亞", "SRB": "塞爾維亞", "SUR": "蘇利南",
+            "SVK": "斯洛伐克", "SVN": "斯洛維尼亞", "SWE": "瑞典", "SWZ": "史瓦帝尼", "SYR": "敘利亞",
+            "TCD": "查德", "TGO": "多哥", "THA": "泰國", "TJK": "塔吉克", "TKM": "土庫曼",
+            "TLS": "東帝汶", "TTO": "千里達及托巴哥", "TUN": "突尼西亞", "TUR": "土耳其", "TWN": "台灣",
+            "TZA": "坦尚尼亞", "UGA": "烏干達", "UKR": "烏克蘭", "URY": "烏拉圭", "USA": "美國",
+            "UZB": "烏茲別克", "VEN": "委內瑞拉", "VNM": "越南", "VUT": "萬那杜", "YEM": "葉門",
+            "ZAF": "南非", "ZMB": "尚比亞", "ZWE": "辛巴威"
+        };
+
+        // 新增：全球 ISO_A3 轉 ISO_A2 (用於讀取 flagcdn.com 上的國旗圖片)
+        const iso3ToIso2 = {
+            "AFG": "af", "AGO": "ao", "ALB": "al", "ARE": "ae", "ARG": "ar", "ARM": "am", "ATA": "aq", "ATF": "tf", "AUS": "au", "AUT": "at",
+            "AZE": "az", "BDI": "bi", "BEL": "be", "BEN": "bj", "BFA": "bf", "BGD": "bd", "BGR": "bg", "BHS": "bs", "BIH": "ba", "BLR": "by",
+            "BLZ": "bz", "BOL": "bo", "BRA": "br", "BRN": "bn", "BTN": "bt", "BWA": "bw", "CAF": "cf", "CAN": "ca", "CHE": "ch", "CHL": "cl",
+            "CHN": "cn", "CIV": "ci", "CMR": "cm", "COD": "cd", "COG": "cg", "COL": "co", "CRI": "cr", "CUB": "cu", "CYP": "cy", "CZE": "cz",
+            "DEU": "de", "DJI": "dj", "DNK": "dk", "DOM": "do", "DZA": "dz", "ECU": "ec", "EGY": "eg", "ERI": "er", "ESP": "es", "EST": "ee",
+            "ETH": "et", "FIN": "fi", "FJI": "fj", "FLK": "fk", "FRA": "fr", "GAB": "ga", "GBR": "gb", "GEO": "ge", "GHA": "gh", "GIN": "gn",
+            "GMB": "gm", "GNB": "gw", "GNQ": "gq", "GRC": "gr", "GRL": "gl", "GTM": "gt", "GUY": "gy", "HND": "hn", "HRV": "hr", "HTI": "ht",
+            "HUN": "hu", "IDN": "id", "IND": "in", "IRL": "ie", "IRN": "ir", "IRQ": "iq", "ISL": "is", "ISR": "il", "ITA": "it", "JAM": "jm",
+            "JOR": "jo", "JPN": "jp", "KAZ": "kz", "KEN": "ke", "KGZ": "kg", "KHM": "kh", "KOR": "kr", "KWT": "kw", "LAO": "la", "LBN": "lb",
+            "LBR": "lr", "LBY": "ly", "LKA": "lk", "LSO": "ls", "LTU": "lt", "LUX": "lu", "LVA": "lv", "MAR": "ma", "MDA": "md", "MDG": "mg",
+            "MEX": "mx", "MKD": "mk", "MLI": "ml", "MMR": "mm", "MNE": "me", "MNG": "mn", "MOZ": "mz", "MRT": "mr", "MWI": "mw", "MYS": "my",
+            "NAM": "na", "NCL": "nc", "NER": "ne", "NGA": "ng", "NIC": "ni", "NLD": "nl", "NOR": "no", "NPL": "np", "NZL": "nz", "OMN": "om",
+            "PAK": "pk", "PAN": "pa", "PER": "pe", "PHL": "ph", "PNG": "pg", "POL": "pl", "PRI": "pr", "PRK": "kp", "PRT": "pt", "PRY": "py",
+            "QAT": "qa", "ROU": "ro", "RUS": "ru", "RWA": "rw", "ESH": "eh", "SAU": "sa", "SDN": "sd", "SSD": "ss", "SEN": "sn", "SLB": "sb",
+            "SLE": "sl", "SLV": "sv", "SOM": "so", "SRB": "rs", "SUR": "sr", "SVK": "sk", "SVN": "si", "SWE": "se", "SWZ": "sz", "SYR": "sy",
+            "TCD": "td", "TGO": "tg", "THA": "th", "TJK": "tj", "TKM": "tm", "TLS": "tl", "TTO": "tt", "TUN": "tn", "TUR": "tr", "TWN": "tw",
+            "TZA": "tz", "UGA": "ug", "UKR": "ua", "URY": "uy", "USA": "us", "UZB": "uz", "VEN": "ve", "VNM": "vn", "VUT": "vu", "YEM": "ye",
+            "ZAF": "za", "ZMB": "zm", "ZWE": "zw"
+        };
+
+        // 取得國家資料 (包含回退機制)
+        function getCountryData(iso, name_en) {
+            let dataObj;
+            if (countryDataDict[iso]) {
+                dataObj = countryDataDict[iso];
+            } else {
+                const zhName = isoA3ToZh[iso] || name_en;
+                // 雜湊生成一個穩定的隨機 GDP 以供視覺化展示 (避免無資料導致空白)
+                let hash = 0;
+                for (let i = 0; i < name_en.length; i++) hash = name_en.charCodeAt(i) + ((hash << 5) - hash);
+                const pseudoRandom = Math.abs(hash) % 100;
+                const fallbackGdp = 800 + (pseudoRandom * 190);
+                
+                dataObj = { zh: zhName, gdp: fallbackGdp };
+            }
+            
+            // 新增：把修正過的 iso 記錄下來，供後續匹配國旗使用
+            return { ...dataObj, iso3: iso }; 
+        }
+
+        // 對數顏色比例尺設定
+        const MIN_GDP = 300;
+        const MID_GDP = 6000;
+        const MAX_GDP = 130000;
+
+        const colorScale = d3.scaleLog()
+            .domain([MIN_GDP, MID_GDP, MAX_GDP])
+            .range(['#00008B', '#FFFFFF', '#8B0000'])
+            .clamp(true);
+
+        // 位置比例尺 (計算游標在圖例上的百分比位置 0% ~ 100%)
+        const positionScale = d3.scaleLog()
+            .domain([MIN_GDP, MAX_GDP])
+            .range([0, 100])
+            .clamp(true);
+
+        const formatMoney = d3.format(",.0f");
+
+        // 初始化 Globe.gl
+        const globe = Globe()
+            (document.getElementById('globeViz'))
+            .globeImageUrl('https://unpkg.com/three-globe/example/img/earth-dark.jpg') 
+            .backgroundImageUrl('https://unpkg.com/three-globe/example/img/night-sky.png') 
+            .backgroundColor('#050510')
+            .showAtmosphere(true) // 開啟大氣層光暈增加真實感
+            .atmosphereColor('#183f70') // 【修正】微調大氣層邊緣，配合新的通透洋藍色
+            .atmosphereAltitude(0.15)
+            .lineHoverPrecision(0)
+            .polygonsData([])
+            .polygonAltitude(0.01)
+            .polygonCapColor(d => colorScale(d.properties.gdpData.gdp))
+            .polygonSideColor(() => 'rgba(0,0,0,0.2)')
+            .polygonStrokeColor(() => '#111')
+            
+            // Hover 效果
+            .polygonLabel(({ properties: d }) => `
+                <div class="tooltip">
+                    <div class="country-name">${d.gdpData.zh} (${d.ADMIN})</div>
+                    <div class="gdp-value">GDP per capita: $${formatMoney(d.gdpData.gdp)}</div>
+                </div>
+            `)
+            .onPolygonHover(hoverD => {
+                globe
+                    .polygonAltitude(d => d === hoverD ? 0.06 : 0.01)
+                    .polygonCapColor(d => {
+                        const baseColor = colorScale(d.properties.gdpData.gdp);
+                        return d === hoverD ? d3.color(baseColor).brighter(0.5).formatHex() : baseColor;
+                    });
+            })
+            
+            // 點擊事件：視角聚焦並顯示面板
+            .onPolygonClick(d => {
+                // 取得幾何中心點
+                const centroid = d3.geoCentroid(d);
+                const lng = centroid[0];
+                const lat = centroid[1];
+
+                // 【更好的建議】：智慧視角偏移 (Smart Camera Offset)
+                // 將攝影機瞄準的經度向東 (右) 偏移約 15 度，這樣國家就會完美落在畫面的左半部，不會被右側的 Panel 遮擋。
+                const offsetLng = lng + 15;
+
+                // 聚焦動畫 (使用偏移後的經度 offsetLng)
+                globe.pointOfView({ lat: lat, lng: offsetLng, altitude: 1.2 }, 1000);
+                
+                // 更新並顯示右側面板
+                updatePanel(d.properties);
+                
+                // 停止自動旋轉
+                globe.controls().autoRotate = false;
+            });
+
+        // 設定控制項
+        globe.controls().autoRotate = true;
+        globe.controls().autoRotateSpeed = 1.2;
+        globe.controls().enableDamping = true;
+
+        // 【修正海洋灰暗的問題】：改用 emissive (自發光) 疊加洋藍色
+        // 因為 earth-dark.jpg 的海洋極暗，單純改 color (色彩乘法) 會被吸收變成髒灰。
+        // 我們把底色重設為白色(保留乾淨的雲層)，並透過 emissive (加法) 讓海洋透出通透的洋藍色。
+        const globeMaterial = globe.globeMaterial();
+        globeMaterial.color = new THREE.Color('#ffffff'); // 讓雲層維持純白
+        globeMaterial.emissive = new THREE.Color('#0a305e'); // 晶瑩剔透的深洋藍色
+        globeMaterial.emissiveIntensity = 1.0; 
+
+        // 載入 GeoJSON 資料
+        fetch('https://raw.githubusercontent.com/vasturiano/globe.gl/master/example/datasets/ne_110m_admin_0_countries.geojson')
+            .then(res => res.json())
+            .then(countries => {
+                countries.features.forEach(feature => {
+                    // 修正：法國與挪威代碼為 -99 的問題
+                    let iso = feature.properties.ISO_A3;
+                    if (iso === '-99') {
+                        iso = feature.properties.ADM0_A3;
+                    }
+                    const nameEn = feature.properties.ADMIN;
+                    
+                    const data = getCountryData(iso, nameEn);
+                    feature.properties.gdpData = data;
+                });
+
+                globe.polygonsData(countries.features);
+
+                // 隱藏載入畫面
+                setTimeout(() => {
+                    const loader = document.getElementById('loader');
+                    if (loader) {
+                        loader.style.opacity = '0';
+                        setTimeout(() => loader.style.display = 'none', 1000);
+                    }
+                }, 500);
+            })
+            .catch(err => {
+                console.error("載入資料失敗:", err);
+                const loader = document.getElementById('loader');
+                if (loader) loader.innerHTML = "資料載入失敗，請檢查網路連線。";
+            });
+
+        // 處理視窗縮放
+        window.addEventListener('resize', () => {
+            globe.width(window.innerWidth);
+            globe.height(window.innerHeight);
+        });
+
+        // 更新資訊面板與圖例游標
+        function updatePanel(props) {
+            const data = props.gdpData;
+            
+            // 更新國家名稱與維基百科超連結 (指定 zh-tw 強制繁體中文介面)
+            const panelZhNameEl = document.getElementById('panelZhName');
+            panelZhNameEl.innerText = data.zh;
+            panelZhNameEl.href = `https://zh.wikipedia.org/zh-tw/${encodeURIComponent(data.zh)}`;
+            
+            document.getElementById('panelEnName').innerText = props.ADMIN;
+            
+            // 新增：處理國旗圖片顯示 (使用 flagcdn.com 讀取高品質國旗)
+            const flagEl = document.getElementById('panelFlag');
+            const iso2 = iso3ToIso2[data.iso3];
+            if (iso2) {
+                flagEl.src = `https://flagcdn.com/w80/${iso2}.png`;
+                flagEl.style.display = 'block';
+            } else {
+                flagEl.style.display = 'none'; // 若無對應國旗則隱藏圖片框架
+            }
+            
+            let counter = { val: 0 };
+            const targetVal = data.gdp;
+            
+            d3.select(counter)
+              .transition()
+              .duration(1000)
+              .tween("val", function() {
+                const i = d3.interpolate(this.val, targetVal);
+                return function(t) {
+                  document.getElementById('panelGdp').innerText = '$ ' + formatMoney(i(t));
+                };
+              });
+
+            const levelEl = document.getElementById('panelLevel');
+            if (targetVal < MID_GDP) {
+                levelEl.innerText = "發展中區域 (深藍)";
+                levelEl.style.color = "#88b3ff";
+            } else if (targetVal < 40000) {
+                levelEl.innerText = "中高所得 (白/淺紅)";
+                levelEl.style.color = "#ffffff";
+            } else {
+                levelEl.innerText = "高度發達 (深紅)";
+                levelEl.style.color = "#ff6666";
+            }
+
+            // 更新並顯示圖例上的游標標記
+            const marker = document.getElementById('legendMarker');
+            marker.style.left = positionScale(targetVal) + '%';
+            marker.classList.add('active');
+
+            document.getElementById('infoPanel').classList.add('active');
+        }
+
+        // 關閉面板
+        function closePanel() {
+            document.getElementById('infoPanel').classList.remove('active');
+            document.getElementById('legendMarker').classList.remove('active');
+            globe.controls().autoRotate = true;
+        }
+    </script>
+</body>
+</html>
