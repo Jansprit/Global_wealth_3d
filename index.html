@@ -274,6 +274,50 @@
         @keyframes spin {
             to { transform: rotate(360deg); }
         }
+
+        /* ------------------------------------------- */
+        /* 新增：手機版響應式設計 (Mobile Responsive) */
+        /* ------------------------------------------- */
+        @media (max-width: 768px) {
+            /* 縮小標題 */
+            .header h1 { font-size: 18px; }
+            .header p { font-size: 12px; }
+
+            /* 將圖例稍微縮小並往上移，避免被底部面板擋住 */
+            .legend {
+                bottom: auto;
+                top: 80px;
+                transform: translateX(-50%) scale(0.85);
+                padding: 10px 20px;
+            }
+
+            /* 將資訊面板改為「底部抽屜 (Bottom Sheet)」設計 */
+            #infoPanel {
+                top: auto;
+                bottom: -100%; /* 初始隱藏於畫面下方 */
+                right: 50%;
+                transform: translateX(50%);
+                width: 90vw; /* 佔據大部分螢幕寬度 */
+                max-width: none;
+                border-left: none;
+                border-top: 3px solid #fff; /* 頂部邊框亮光 */
+                border-radius: 16px 16px 0 0; /* 只有上方圓角 */
+                padding: 15px 20px;
+                transition: bottom 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+            }
+
+            #infoPanel.active {
+                bottom: 0; /* 從下方滑出並貼齊底部 */
+            }
+
+            /* 縮小面板內的數值字體與間距，以適應手機螢幕 */
+            #infoPanel h2 { font-size: 20px; }
+            #panelFlag { width: 45px; }
+            .panel-header { margin-bottom: 10px; }
+            #infoPanel .stat-box { padding: 10px; margin-bottom: 10px; }
+            #infoPanel .stat-value { font-size: 18px; }
+            #infoPanel .en-name { font-size: 12px; }
+        }
     </style>
 </head>
 <body>
@@ -521,12 +565,17 @@
                 const lng = centroid[0];
                 const lat = centroid[1];
 
-                // 【更好的建議】：智慧視角偏移 (Smart Camera Offset)
-                // 將攝影機瞄準的經度向東 (右) 偏移約 15 度，這樣國家就會完美落在畫面的左半部，不會被右側的 Panel 遮擋。
-                const offsetLng = lng + 15;
+                // 判斷目前是否為手機版螢幕 (寬度 <= 768px)
+                const isMobile = window.innerWidth <= 768;
 
-                // 聚焦動畫 (使用偏移後的經度 offsetLng)
-                globe.pointOfView({ lat: lat, lng: offsetLng, altitude: 1.2 }, 1000);
+                // 【更好的建議】：智慧視角偏移 (Smart Camera Offset)
+                // 電腦版：將攝影機瞄準的經度向東 (右) 偏移約 15 度，讓國家落在畫面左半部。
+                // 手機版：將攝影機瞄準的緯度向南 (下) 偏移約 15 度，讓國家落在畫面上半部，避開底部抽屜。
+                const offsetLng = isMobile ? lng : lng + 15;
+                const offsetLat = isMobile ? lat - 15 : lat;
+
+                // 聚焦動畫 (使用偏移後的座標)
+                globe.pointOfView({ lat: offsetLat, lng: offsetLng, altitude: 1.2 }, 1000);
                 
                 // 更新並顯示右側面板
                 updatePanel(d.properties);
